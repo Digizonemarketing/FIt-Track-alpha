@@ -1,0 +1,530 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
+import useSWR from "swr"
+import { useToast } from "@/hooks/use-toast"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { DashboardHeader } from "@/components/dashboard-header"
+import { DashboardShell } from "@/components/dashboard-shell"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { Calendar } from "@/components/ui/calendar"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Check, Clock, MessageCircle, Star, Video, Trash2 } from "lucide-react"
+import { format } from "date-fns"
+
+export default function ConsultationsPage() {
+  const router = useRouter()
+  const { toast } = useToast()
+  const [userId, setUserId] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [date, setDate] = useState(new Date())
+  const [selectedNutritionist, setSelectedNutritionist] = useState(null)
+  const [selectedTime, setSelectedTime] = useState(null)
+  const [consultationType, setConsultationType] = useState("video")
+  const [bookingStep, setBookingStep] = useState(1)
+  const [goals, setGoals] = useState("")
+  const [questions, setQuestions] = useState("")
+  const [medical, setMedical] = useState("")
+
+  useEffect(() => {
+    const getUserId = async () => {
+      try {
+        const supabase = createClient()
+        const { data, error } = await supabase.auth.getSession()
+
+        if (error || !data.session?.user?.id) {
+          router.push("/login")
+          return
+        }
+
+        setUserId(data.session.user.id)
+      } catch (err) {
+        console.error("[v0] Error:", err)
+        router.push("/login")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    getUserId()
+  }, [router])
+
+  useEffect(() => {
+    const script = document.createElement("script")
+    script.src = "https://calendar.google.com/calendar/scheduling-button-script.js"
+    script.async = true
+    document.body.appendChild(script)
+
+    return () => {
+      document.body.removeChild(script)
+    }
+  }, [])
+
+  const fetcher = (url: string) => fetch(url).then((res) => res.json())
+
+  const { data: consultationData, mutate } = useSWR(userId ? `/api/consultations?userId=${userId}` : null, fetcher, {
+    revalidateOnFocus: false,
+  })
+
+  const nutritionists = [
+    {
+      id: "sarah",
+      name: "Dr. Sarah Johnson",
+      title: "Registered Dietitian, PhD",
+      specialty: "Weight Management, Diabetes",
+      rating: 4.9,
+      reviews: 124,
+      price: 75,
+      image: "/placeholder.svg?height=100&width=100",
+      available: true,
+    },
+    {
+      id: "michael",
+      name: "Michael Chen",
+      title: "Sports Nutritionist, MS",
+      specialty: "Athletic Performance, Muscle Building",
+      rating: 4.7,
+      reviews: 98,
+      price: 65,
+      image: "/placeholder.svg?height=100&width=100",
+      available: true,
+    },
+    {
+      id: "emily",
+      name: "Dr. Emily Rodriguez",
+      title: "Clinical Dietitian, PhD",
+      specialty: "Medical Nutrition Therapy, Gut Health",
+      rating: 4.8,
+      reviews: 156,
+      price: 80,
+      image: "/placeholder.svg?height=100&width=100",
+      available: true,
+    },
+    {
+      id: "james",
+      name: "James Wilson",
+      title: "Holistic Nutritionist",
+      specialty: "Plant-Based Nutrition, Detox Programs",
+      rating: 4.6,
+      reviews: 87,
+      price: 60,
+      image: "/placeholder.svg?height=100&width=100",
+      available: false,
+    },
+  ]
+
+  const handleBookConsultation = async () => {
+    if (bookingStep < 3) {
+      setBookingStep(bookingStep + 1)
+    } else {
+      try {
+        if (selectedNutritionist && selectedTime && userId) {
+          const response = await fetch("/api/consultations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              nutritionistId: selectedNutritionist,
+              scheduledDate: date.toISOString(),
+              consultationType,
+              notes: `Goals: ${goals}\n\nQuestions: ${questions}\n\nMedical: ${medical}`,
+            }),
+          })
+
+          if (!response.ok) {
+            throw new Error("Failed to book consultation")
+          }
+
+          toast({
+            title: "Success!",
+            description: "Your consultation has been booked.",
+          })
+
+          mutate()
+          resetBooking()
+        }
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to book consultation",
+          variant: "destructive",
+        })
+      }
+    }
+  }
+
+  const resetBooking = () => {
+    setBookingStep(1)
+    setSelectedNutritionist(null)
+    setSelectedTime(null)
+    setGoals("")
+    setQuestions("")
+    setMedical("")
+    setConsultationType("video")
+  }
+
+  const handleDeleteConsultation = async (id: string) => {
+    try {
+      const supabase = createClient()
+      await supabase.from("consultation_sessions").delete().eq("id", id).eq("user_id", userId)
+      mutate()
+    } catch (error) {
+      console.error("[v0] Error deleting consultation:", error)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <DashboardShell>
+        <div className="flex items-center justify-center h-96">
+          <div className="text-muted-foreground">Loading...</div>
+        </div>
+      </DashboardShell>
+    )
+  }
+
+  const selectedNutritionistData = nutritionists.find((n) => n.id === selectedNutritionist)
+  const upcoming = consultationData?.upcoming || []
+  const past = consultationData?.past || []
+
+  return (
+    <DashboardShell>
+      <div className="flex-1">
+        <DashboardHeader
+          heading="Book Consultation"
+          text="Schedule a consultation with our expert nutritionists using Google Calendar or browse our available professionals."
+        />
+
+        <Tabs defaultValue="google-calendar" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="google-calendar">Google Calendar Booking</TabsTrigger>
+            <TabsTrigger value="book">Book with Professional</TabsTrigger>
+            <TabsTrigger value="upcoming">Upcoming ({upcoming.length})</TabsTrigger>
+            <TabsTrigger value="past">Past ({past.length})</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="google-calendar" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Schedule with Google Calendar</CardTitle>
+                <CardDescription>
+                  Book your consultation directly using our Google Calendar scheduling system
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="w-full">
+                  <iframe
+                    src="https://calendar.google.com/calendar/appointments/schedules/AcZssZ1X4uJLZ8n4hzmoUMW07vEuFpwu2ohNNUIRw3aSgjPIVIuXOzX4jMwv01T6jT4OI6Wy9Bz7Xesd?gv=true"
+                    style={{ border: 0 }}
+                    width="100%"
+                    height="600"
+                    frameBorder="0"
+                  ></iframe>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="book" className="space-y-4">
+            {bookingStep === 1 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Select a Nutritionist</CardTitle>
+                  <CardDescription>Choose a nutritionist that matches your needs</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-4">
+                    {nutritionists.map((nutritionist) => (
+                      <div
+                        key={nutritionist.id}
+                        className={`rounded-lg border p-4 transition-colors cursor-pointer ${
+                          selectedNutritionist === nutritionist.id ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                        } ${!nutritionist.available ? "opacity-60 cursor-not-allowed" : ""}`}
+                        onClick={() => nutritionist.available && setSelectedNutritionist(nutritionist.id)}
+                      >
+                        <div className="flex items-start gap-4">
+                          <Avatar className="h-16 w-16">
+                            <AvatarImage src={nutritionist.image || "/placeholder.svg"} alt={nutritionist.name} />
+                            <AvatarFallback>
+                              {nutritionist.name
+                                .split(" ")
+                                .map((n) => n[0])
+                                .join("")}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between">
+                              <h3 className="font-medium">{nutritionist.name}</h3>
+                              <div className="flex items-center">
+                                <Star className="mr-1 h-4 w-4 fill-primary text-primary" />
+                                <span className="text-sm font-medium">{nutritionist.rating}</span>
+                                <span className="text-sm text-muted-foreground ml-1">({nutritionist.reviews})</span>
+                              </div>
+                            </div>
+                            <p className="text-sm text-muted-foreground">{nutritionist.title}</p>
+                            <p className="text-sm mt-1">
+                              <span className="font-medium">Specialty:</span> {nutritionist.specialty}
+                            </p>
+                            <div className="flex items-center justify-between mt-2">
+                              <Badge variant="outline">${nutritionist.price} / 30 min</Badge>
+                              {nutritionist.available ? (
+                                <Badge variant={selectedNutritionist === nutritionist.id ? "default" : "outline"}>
+                                  {selectedNutritionist === nutritionist.id ? <Check className="mr-2 h-4 w-4" /> : null}
+                                  {selectedNutritionist === nutritionist.id ? "Selected" : "Select"}
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary">Unavailable</Badge>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+                <CardFooter>
+                  <Button onClick={handleBookConsultation} className="w-full" disabled={!selectedNutritionist}>
+                    Continue
+                  </Button>
+                </CardFooter>
+              </Card>
+            )}
+
+            {bookingStep === 2 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Select Date & Time</CardTitle>
+                  <CardDescription>Choose a convenient time for your consultation</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-6 md:grid-cols-2">
+                    <div>
+                      <Label className="mb-2 block">Select Date</Label>
+                      <Calendar
+                        mode="single"
+                        selected={date}
+                        onSelect={(d) => d && setDate(d)}
+                        className="rounded-md border"
+                        disabled={(d) => d < new Date() || d > new Date(new Date().setDate(new Date().getDate() + 30))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="mb-2 block">Available Time Slots</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {["9:00 AM", "10:00 AM", "11:00 AM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM"].map(
+                          (time) => (
+                            <Button
+                              key={time}
+                              variant={selectedTime === time ? "default" : "outline"}
+                              className="justify-start"
+                              onClick={() => setSelectedTime(time)}
+                            >
+                              <Clock className="mr-2 h-4 w-4" />
+                              {time}
+                            </Button>
+                          ),
+                        )}
+                      </div>
+                      <div className="mt-4">
+                        <Label className="mb-2 block">Consultation Type</Label>
+                        <RadioGroup value={consultationType} onValueChange={setConsultationType}>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="video" id="video" />
+                            <Label htmlFor="video" className="flex items-center cursor-pointer">
+                              <Video className="mr-2 h-4 w-4" />
+                              Video Call
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="chat" id="chat" />
+                            <Label htmlFor="chat" className="flex items-center cursor-pointer">
+                              <MessageCircle className="mr-2 h-4 w-4" />
+                              Chat Session
+                            </Label>
+                          </div>
+                        </RadioGroup>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+                <CardFooter className="flex justify-between">
+                  <Button variant="outline" onClick={() => setBookingStep(1)}>
+                    Back
+                  </Button>
+                  <Button onClick={handleBookConsultation} disabled={!selectedTime}>
+                    Continue
+                  </Button>
+                </CardFooter>
+              </Card>
+            )}
+
+            {bookingStep === 3 && selectedNutritionistData && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Consultation Details</CardTitle>
+                  <CardDescription>Provide additional information for your nutritionist</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="rounded-lg border p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-4">
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage
+                            src={selectedNutritionistData.image || "/placeholder.svg"}
+                            alt={selectedNutritionistData.name}
+                          />
+                          <AvatarFallback>
+                            {selectedNutritionistData.name
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-sm font-medium">{selectedNutritionistData.name}</p>
+                          <p className="text-sm text-muted-foreground">{selectedNutritionistData.specialty}</p>
+                        </div>
+                      </div>
+                      <Badge>${selectedNutritionistData.price} / 30 min</Badge>
+                    </div>
+                    <Separator className="my-4" />
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-muted-foreground">Date</p>
+                        <p className="font-medium">{format(date, "MMMM d, yyyy")}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Time</p>
+                        <p className="font-medium">{selectedTime}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Type</p>
+                        <p className="font-medium capitalize">{consultationType}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Duration</p>
+                        <p className="font-medium">30 minutes</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="goals">What are your main nutrition goals?</Label>
+                    <Textarea
+                      id="goals"
+                      placeholder="E.g., I want to lose weight, improve my energy levels, manage my diabetes, etc."
+                      className="min-h-[100px]"
+                      value={goals}
+                      onChange={(e) => setGoals(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="questions">Do you have specific questions for the nutritionist?</Label>
+                    <Textarea
+                      id="questions"
+                      placeholder="E.g., How can I reduce sugar cravings? What foods should I eat before workouts?"
+                      className="min-h-[100px]"
+                      value={questions}
+                      onChange={(e) => setQuestions(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="medical">Any relevant medical conditions or medications?</Label>
+                    <Textarea
+                      id="medical"
+                      placeholder="E.g., Diabetes, high cholesterol, food allergies, current medications..."
+                      className="min-h-[100px]"
+                      value={medical}
+                      onChange={(e) => setMedical(e.target.value)}
+                    />
+                  </div>
+                </CardContent>
+                <CardFooter className="flex justify-between">
+                  <Button variant="outline" onClick={() => setBookingStep(2)}>
+                    Back
+                  </Button>
+                  <Button onClick={handleBookConsultation}>Confirm Booking</Button>
+                </CardFooter>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="upcoming" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Upcoming Consultations</CardTitle>
+                <CardDescription>Your scheduled consultations with nutritionists</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {upcoming.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No upcoming consultations. Book one today!
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {upcoming.map((consultation) => (
+                      <div key={consultation.id} className="rounded-lg border p-4">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-medium">{consultation.nutritionist_id}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {format(new Date(consultation.scheduled_date), "MMMM d, yyyy")} at{" "}
+                              {format(new Date(consultation.scheduled_date), "h:mm a")}
+                            </p>
+                            <Badge className="mt-2">{consultation.status}</Badge>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => handleDeleteConsultation(consultation.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="past" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Past Consultations</CardTitle>
+                <CardDescription>Review your previous consultations</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {past.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">No past consultations yet.</div>
+                ) : (
+                  <div className="space-y-4">
+                    {past.map((consultation) => (
+                      <div key={consultation.id} className="rounded-lg border p-4">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-medium">{consultation.nutritionist_id}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {format(new Date(consultation.scheduled_date), "MMMM d, yyyy")}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-4">{consultation.notes}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </DashboardShell>
+  )
+}
