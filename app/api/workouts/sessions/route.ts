@@ -1,41 +1,29 @@
 import { createServerClient } from "@/lib/supabase/server"
 import { createNotification } from "@/lib/notifications/create-notification"
-import { type NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 
-// -------------------------------
-// Helper Parsing Functions
-// -------------------------------
+// Parse number from a string or return default
 function parseIntValue(value: any, defaultValue = 0): number {
   if (typeof value === "number") return value
-
   if (typeof value === "string") {
     const match = value.match(/\d+/)
     return match ? Number.parseInt(match[0], 10) : defaultValue
   }
-
   return defaultValue
 }
 
 function parseRepsValue(value: any): number {
   if (typeof value === "number") return value
-
   if (typeof value === "string") {
-    const lower = value.toLowerCase()
-
-    if (lower.includes("as many") || lower.includes("amrap")) {
-      return 15 // AMRAP default
+    if (value.toLowerCase().includes("as many") || value.toLowerCase().includes("amrap")) {
+      return 15
     }
-
     const match = value.match(/\d+/)
     return match ? Number.parseInt(match[0], 10) : 10
   }
-
   return 10
 }
 
-// -------------------------------
-// GET — Fetch Sessions
-// -------------------------------
 export async function GET(request: NextRequest) {
   try {
     const supabase = createServerClient()
@@ -44,11 +32,14 @@ export async function GET(request: NextRequest) {
     const planId = searchParams.get("planId")
     const sessionId = searchParams.get("sessionId")
 
-    // -------- Fetch a single session --------
+    // FETCH SINGLE SESSION
     if (sessionId) {
       const { data: session, error } = await supabase
         .from("workout_sessions")
-        .select(`*, workout_exercises (*)`)
+        .select(`
+          *,
+          workout_exercises (*)
+        `)
         .eq("id", sessionId)
         .single()
 
@@ -57,15 +48,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ session })
     }
 
-    // -------- Missing planId --------
+    // FETCH MULTIPLE SESSIONS
     if (!planId) {
       return NextResponse.json({ error: "Plan ID or Session ID required" }, { status: 400 })
     }
 
-    // -------- Fetch all sessions in plan --------
     const { data: sessions, error } = await supabase
       .from("workout_sessions")
-      .select(`*, workout_exercises (*)`)
+      .select(`
+        *,
+        workout_exercises (*)
+      `)
       .eq("workout_plan_id", planId)
       .order("session_number", { ascending: true })
 
@@ -73,41 +66,45 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ sessions: sessions || [] })
   } catch (error) {
-    console.error("[v0] Error fetching sessions:", error)
+    console.error("[GET] Error:", error)
     return NextResponse.json({ error: "Failed to fetch sessions" }, { status: 500 })
   }
 }
 
-// -------------------------------
-// POST — Create Session
-// -------------------------------
 export async function POST(request: NextRequest) {
   try {
     const supabase = createServerClient()
     const body = await request.json()
 
-    const { planId, sessionName, dayOfWeek, sessionNumber, duration, intensity, exercises, sessionDate } = body
+    const {
+      planId,
+      sessionName,
+      dayOfWeek,
+      sessionNumber,
+      duration,
+      intensity,
+      exercises,
+      sessionDate,
+    } = body
 
     if (!planId || !sessionName) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // -------- Calculate session date --------
+    // HANDLE DATE (dayOfWeek → next occurrence)
     let calculatedSessionDate = sessionDate
 
     if (!calculatedSessionDate && dayOfWeek) {
-      const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-      const targetIndex = days.indexOf(dayOfWeek)
+      const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+      const targetDay = daysOfWeek.indexOf(dayOfWeek)
+      const now = new Date()
+      const current = now.getDay()
 
-      const today = new Date()
-      const nowIndex = today.getDay()
-
-      let diff = targetIndex - nowIndex
+      let diff = targetDay - current
       if (diff < 0) diff += 7
 
-      const targetDate = new Date(today)
-      targetDate.setDate(today.getDate() + diff)
-
+      const targetDate = new Date()
+      targetDate.setDate(now.getDate() + diff)
       calculatedSessionDate = targetDate.toISOString().split("T")[0]
     }
 
@@ -115,7 +112,7 @@ export async function POST(request: NextRequest) {
       calculatedSessionDate = new Date().toISOString().split("T")[0]
     }
 
-    // -------- Create session --------
+    // CREATE SESSION
     const { data: session, error: sessionError } = await supabase
       .from("workout_sessions")
       .insert([
@@ -136,9 +133,9 @@ export async function POST(request: NextRequest) {
 
     if (sessionError) throw sessionError
 
-    // -------- Insert exercises --------
-    if (exercises && exercises.length > 0) {
-      const rows = exercises.map((ex: any, index: number) => ({
+    // INSERT EXERCISES
+    if (exercises?.length) {
+      const exercisesToInsert = exercises.map((ex: any, i: number) => ({
         workout_session_id: session.id,
         exercise_name: ex.name || ex.exercise_name,
         exercise_id: ex.exercise_id || null,
@@ -147,29 +144,25 @@ export async function POST(request: NextRequest) {
         weight_kg: ex.weight_kg ? parseIntValue(ex.weight_kg) : null,
         duration_seconds: ex.duration_seconds ? parseIntValue(ex.duration_seconds) : null,
         rest_seconds: parseIntValue(ex.rest_seconds || ex.restSeconds, 60),
-        order_in_session: index + 1,
+        order_in_session: i + 1,
         notes: ex.instructions || ex.notes || null,
         completed: false,
       }))
 
-      const { error: exercisesError } = await supabase.from("workout_exercises").insert(rows)
+      const { error: exError } = await supabase
+        .from("workout_exercises")
+        .insert(exercisesToInsert)
 
-      if (exercisesError) {
-        console.error("[v0] Error creating exercises:", exercisesError)
-        throw exercisesError
-      }
+      if (exError) throw exError
     }
 
     return NextResponse.json({ session }, { status: 201 })
   } catch (error) {
-    console.error("[v0] Error creating session:", error)
+    console.error("[POST] Error:", error)
     return NextResponse.json({ error: "Failed to create session" }, { status: 500 })
   }
 }
 
-// -------------------------------
-// PATCH — Update Session
-// -------------------------------
 export async function PATCH(request: NextRequest) {
   try {
     const supabase = createServerClient()
@@ -181,7 +174,6 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "Session ID required" }, { status: 400 })
     }
 
-    // -------- Build update object --------
     const updateData: any = {
       ...updates,
       updated_at: new Date().toISOString(),
@@ -197,7 +189,6 @@ export async function PATCH(request: NextRequest) {
     if (caloriesBurned !== undefined) updateData.calories_burned = caloriesBurned
     if (notes !== undefined) updateData.notes = notes
 
-    // -------- Update session --------
     const { data, error } = await supabase
       .from("workout_sessions")
       .update(updateData)
@@ -207,7 +198,7 @@ export async function PATCH(request: NextRequest) {
 
     if (error) throw error
 
-    // -------- Send notification --------
+    // SEND NOTIFICATION
     if (completed && data) {
       const { data: session } = await supabase
         .from("workout_sessions")
@@ -219,7 +210,9 @@ export async function PATCH(request: NextRequest) {
         await createNotification({
           userId: session.workout_plans.user_id,
           title: "🎉 Workout Completed!",
-          message: `Great job! You completed "${data.session_name}"${data.calories_burned ? ` and burned ${Math.round(data.calories_burned)} calories` : ""}!`,
+          message: `Great job! You completed "${data.session_name}" ${
+            data.calories_burned ? `and burned ${Math.round(data.calories_burned)} calories` : ""
+          }!`,
           type: "workout",
         })
       }
@@ -227,7 +220,7 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ session: data })
   } catch (error) {
-    console.error("[v0] Error updating session:", error)
+    console.error("[PATCH] Error:", error)
     return NextResponse.json({ error: "Failed to update session" }, { status: 500 })
   }
 }

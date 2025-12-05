@@ -1,6 +1,11 @@
 import { createClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
 
+function truncateToLimit(value: string | null | undefined, limit = 100): string | null {
+  if (!value) return null
+  return value.length > limit ? value.substring(0, limit - 3) + "..." : value
+}
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -89,10 +94,10 @@ export async function POST(request: NextRequest) {
       .insert([
         {
           user_id: userId,
-          plan_name: planName,
-          plan_type: planType || "custom",
-          target_goal: targetGoal || "general",
-          difficulty_level: difficultyLevel || "moderate",
+          plan_name: truncateToLimit(planName),
+          plan_type: truncateToLimit(planType || "custom"),
+          target_goal: truncateToLimit(targetGoal || "general"),
+          difficulty_level: truncateToLimit(difficultyLevel || "moderate"),
           start_date: startDate,
           end_date: end.toISOString().split("T")[0],
           duration_weeks: durationWeeks || 4,
@@ -105,7 +110,10 @@ export async function POST(request: NextRequest) {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      console.error("[v0] Error creating workout plan:", error.message)
+      throw error
+    }
 
     return NextResponse.json({ plan: data }, { status: 201 })
   } catch (error) {

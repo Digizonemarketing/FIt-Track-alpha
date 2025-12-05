@@ -144,6 +144,12 @@ export default function WorkoutPlanPage() {
 
     setIsSaving(true)
     try {
+      const targetGoal = generatedPlan.weeklyGoals
+        ? generatedPlan.weeklyGoals.length > 95
+          ? generatedPlan.weeklyGoals.substring(0, 92) + "..."
+          : generatedPlan.weeklyGoals
+        : "general fitness"
+
       // Create the workout plan
       const planResponse = await fetch("/api/workouts/plans", {
         method: "POST",
@@ -154,13 +160,17 @@ export default function WorkoutPlanPage() {
           planType: "ai-generated",
           startDate: new Date().toISOString().split("T")[0],
           frequency: generatedPlan.workoutPlan.length,
-          targetGoal: generatedPlan.weeklyGoals,
+          targetGoal, // Use truncated value
           difficultyLevel: "moderate",
           durationWeeks: 4,
         }),
       })
 
-      if (!planResponse.ok) throw new Error("Failed to save plan")
+      if (!planResponse.ok) {
+        const errorData = await planResponse.json()
+        console.error("[v0] Plan creation failed:", errorData)
+        throw new Error(errorData.error || "Failed to save plan")
+      }
 
       const { plan } = await planResponse.json()
       console.log("[v0] Plan created:", plan.id)
@@ -209,7 +219,7 @@ export default function WorkoutPlanPage() {
       console.error("[v0] Error saving plan:", error)
       toast({
         title: "Save Failed",
-        description: "Failed to save your workout plan. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to save your workout plan. Please try again.",
         variant: "destructive",
       })
     } finally {
