@@ -696,7 +696,6 @@ function AITechnologySection() {
               />
             </motion.div>
           </motion.div>
-
           <motion.div
             className="order-1 md:order-2"
             initial={{ opacity: 0, x: 30 }}
