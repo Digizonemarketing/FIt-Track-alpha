@@ -26,7 +26,7 @@ function parseRepsValue(value: any): number {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createServerClient()
+    const supabase = await createServerClient()
     const { searchParams } = new URL(request.url)
 
     const planId = searchParams.get("planId")
@@ -36,15 +36,11 @@ export async function GET(request: NextRequest) {
     if (sessionId) {
       const { data: session, error } = await supabase
         .from("workout_sessions")
-        .select(`
-          *,
-          workout_exercises (*)
-        `)
+        .select(`*, workout_exercises (*)`)
         .eq("id", sessionId)
         .single()
 
       if (error) throw error
-
       return NextResponse.json({ session })
     }
 
@@ -55,15 +51,11 @@ export async function GET(request: NextRequest) {
 
     const { data: sessions, error } = await supabase
       .from("workout_sessions")
-      .select(`
-        *,
-        workout_exercises (*)
-      `)
+      .select(`*, workout_exercises (*)`)
       .eq("workout_plan_id", planId)
       .order("session_number", { ascending: true })
 
     if (error) throw error
-
     return NextResponse.json({ sessions: sessions || [] })
   } catch (error) {
     console.error("[GET] Error:", error)
@@ -73,7 +65,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createServerClient()
+    const supabase = await createServerClient()
     const body = await request.json()
 
     const {
@@ -93,21 +85,17 @@ export async function POST(request: NextRequest) {
 
     // HANDLE DATE (dayOfWeek → next occurrence)
     let calculatedSessionDate = sessionDate
-
     if (!calculatedSessionDate && dayOfWeek) {
       const daysOfWeek = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
       const targetDay = daysOfWeek.indexOf(dayOfWeek)
       const now = new Date()
       const current = now.getDay()
-
       let diff = targetDay - current
       if (diff < 0) diff += 7
-
       const targetDate = new Date()
       targetDate.setDate(now.getDate() + diff)
       calculatedSessionDate = targetDate.toISOString().split("T")[0]
     }
-
     if (!calculatedSessionDate) {
       calculatedSessionDate = new Date().toISOString().split("T")[0]
     }
@@ -149,10 +137,7 @@ export async function POST(request: NextRequest) {
         completed: false,
       }))
 
-      const { error: exError } = await supabase
-        .from("workout_exercises")
-        .insert(exercisesToInsert)
-
+      const { error: exError } = await supabase.from("workout_exercises").insert(exercisesToInsert)
       if (exError) throw exError
     }
 
@@ -165,7 +150,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const supabase = createServerClient()
+    const supabase = await createServerClient()
     const body = await request.json()
 
     const { sessionId, completed, completionDate, caloriesBurned, notes, ...updates } = body

@@ -3,7 +3,9 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createServerClient()
+    // Pass request to get proper server-side client
+    const supabase = await createServerClient()
+
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get("userId")
 
@@ -11,51 +13,54 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "User ID required" }, { status: 400 })
     }
 
-    // Get date range for this week
+    // Date range for this week
     const now = new Date()
     const startOfWeek = new Date(now)
     startOfWeek.setDate(now.getDate() - now.getDay())
     startOfWeek.setHours(0, 0, 0, 0)
 
-    // Get all user's workout plans
-    const { data: plans } = await supabase.from("workout_plans").select("id").eq("user_id", userId)
+    // Fetch workout plans
+    const { data: plans, error: plansError } = await supabase
+      .from("workout_plans")
+      .select("id")
+      .eq("user_id", userId)
+
+    if (plansError) throw plansError
 
     const planIds = plans?.map((p) => p.id) || []
 
-    // Get completed sessions this week
-    const { data: weeklyData, count: weeklyWorkouts } = await supabase
+    // Completed sessions this week
+    const { data: weeklyData, count: weeklyWorkouts, error: weeklyError } = await supabase
       .from("workout_sessions")
       .select("*", { count: "exact" })
       .in("workout_plan_id", planIds)
       .eq("completed", true)
       .gte("completion_date", startOfWeek.toISOString())
 
-    // Get total completed sessions
-    const { count: totalSessions } = await supabase
+    if (weeklyError) throw weeklyError
+
+    // Total completed sessions
+    const { count: totalSessions, error: totalError } = await supabase
       .from("workout_sessions")
       .select("*", { count: "exact" })
       .in("workout_plan_id", planIds)
       .eq("completed", true)
 
-    // Get total calories burned this week
-    const totalCaloriesThisWeek =
-      weeklyData?.reduce((sum, session) => {
-        return sum + (session.calories_burned || 0)
-      }, 0) || 0
+    if (totalError) throw totalError
 
-    // Get total duration this week
-    const totalDurationThisWeek =
-      weeklyData?.reduce((sum, session) => {
-        return sum + (session.duration_minutes || 0)
-      }, 0) || 0
+    // Total calories & duration this week
+    const totalCaloriesThisWeek = weeklyData?.reduce((sum, s) => sum + (s.calories_burned || 0), 0) || 0
+    const totalDurationThisWeek = weeklyData?.reduce((sum, s) => sum + (s.duration_minutes || 0), 0) || 0
 
-    // Get workout progress data
-    const { data: progressData } = await supabase
+    // Workout progress
+    const { data: progressData, error: progressError } = await supabase
       .from("workout_progress")
       .select("*")
       .eq("user_id", userId)
       .order("last_performed", { ascending: false })
       .limit(10)
+
+    if (progressError) throw progressError
 
     return NextResponse.json({
       weeklyWorkouts: weeklyWorkouts || 0,
